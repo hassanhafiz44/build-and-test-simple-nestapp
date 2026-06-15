@@ -16,9 +16,21 @@ export class ProductsService implements OnModuleInit {
     const count = await this.productsRepository.count();
     if (count === 0) {
       await this.productsRepository.save([
-        this.productsRepository.create({ name: 'Wireless Mouse', price: 25, stock: 100 }),
-        this.productsRepository.create({ name: 'Mechanical Keyboard', price: 75, stock: 50 }),
-        this.productsRepository.create({ name: 'USB-C Hub', price: 40, stock: 30 }),
+        this.productsRepository.create({
+          name: 'Wireless Mouse',
+          price: 25,
+          stock: 100,
+        }),
+        this.productsRepository.create({
+          name: 'Mechanical Keyboard',
+          price: 75,
+          stock: 50,
+        }),
+        this.productsRepository.create({
+          name: 'USB-C Hub',
+          price: 40,
+          stock: 30,
+        }),
       ]);
       this.logger.log('Seeded product catalog');
     }

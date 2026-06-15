@@ -1,98 +1,140 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# QA Test Prep API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A small NestJS REST API used as a sandbox for practicing manual and automated QA testing. It implements a minimal e-commerce flow: user registration/login, a seeded product catalog, and order placement with role-based access control.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Tech stack
 
-## Description
+- **NestJS 11** (Express platform)
+- **TypeORM** with **better-sqlite3** (file-based SQLite database, schema auto-synced)
+- **@nestjs/jwt** + **passport-jwt** for authentication
+- **class-validator** / **class-transformer** for request validation (global `ValidationPipe` with `whitelist` + `transform`)
+- **bcryptjs** for password hashing
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Project structure
 
-## Project setup
-
-```bash
-$ npm install
+```
+src/
+  app.module.ts       # root module: config, TypeORM connection, feature modules
+  main.ts             # bootstraps the app and global validation pipe
+  auth/
+    auth.controller.ts   # POST /auth/register, POST /auth/login
+    auth.service.ts      # registration + login, password hashing, JWT issuing
+    dto/                  # RegisterDto, LoginDto
+    strategies/           # JwtStrategy (validates Bearer tokens)
+    guards/               # JwtAuthGuard, RolesGuard
+    decorators/           # @CurrentUser(), @Roles()
+  users/
+    entities/user.entity.ts  # User entity (email, password hash, name, role)
+    users.service.ts         # user lookup/creation, seeds a default admin
+    users.controller.ts       # GET /api/admin/users (admin only)
+  products/
+    entities/product.entity.ts # Product entity (name, price, stock)
+    products.service.ts        # lookup/save, seeds a starter catalog
+  orders/
+    entities/order.entity.ts   # Order entity (status, quantity, total, owner)
+    dto/                        # CreateOrderDto, UpdateOrderStatusDto
+    orders.service.ts          # create order, fetch order, status transitions
+    orders.controller.ts       # POST /api/orders, GET /api/orders/:id, PATCH /api/orders/:id/status
+postman/
+  NestJS-QA-Collection.postman_collection.json   # Postman collection covering all endpoints
+  NestJS-QA.postman_environment.json             # Postman environment (base URL, test creds, tokens)
 ```
 
-## Compile and run the project
+## Current state of the system
+
+### Auth (`/auth`)
+
+| Method | Path             | Description                                  |
+| ------ | ---------------- | --------------------------------------------- |
+| POST   | `/auth/register` | Create a new user (`email`, `password` min 8 chars, `name`). Returns the created user (no password). |
+| POST   | `/auth/login`    | Exchange `email`/`password` for a JWT (`access_token`, 1h expiry). |
+
+### Orders (`/api/orders`) — requires `Authorization: Bearer <token>`
+
+| Method | Path                      | Description |
+| ------ | ------------------------- | ----------- |
+| POST   | `/api/orders`             | Create an order for `productId` + `quantity` (1–10). Validates stock, decrements it, computes `total`. |
+| GET    | `/api/orders/:id`         | Fetch an order. Owners or admins only (403 otherwise). |
+| PATCH  | `/api/orders/:id/status`  | Update order status. Allowed transitions: `PENDING → CONFIRMED/CANCELLED`, `CONFIRMED → DELIVERED/CANCELLED`. `DELIVERED`/`CANCELLED` are terminal (422 if violated). |
+
+### Admin (`/api/admin`) — requires `Authorization: Bearer <token>` + `ADMIN` role
+
+| Method | Path              | Description                          |
+| ------ | ----------------- | ------------------------------------- |
+| GET    | `/api/admin/users` | List all users. Returns 403 for non-admins. |
+
+### Data & seeding
+
+On startup, the app connects to a local SQLite file (`database.sqlite` by default, overridable via `DB_PATH`) and auto-syncs the schema. Two seed steps run once if the tables are empty:
+
+- **Products**: Wireless Mouse ($25, stock 100), Mechanical Keyboard ($75, stock 50), USB-C Hub ($40, stock 30).
+- **Admin user**: `admin@example.com` / `Admin@12345` (role `ADMIN`).
+
+### Configuration
+
+Environment variables (all optional, with sensible defaults):
+
+| Variable     | Default              | Purpose                          |
+| ------------ | -------------------- | --------------------------------- |
+| `DB_PATH`    | `database.sqlite`    | Path to the SQLite database file   |
+| `JWT_SECRET` | `dev-secret`         | Secret used to sign/verify JWTs    |
+| `PORT`       | `3000`                | HTTP port                          |
+
+## Running the app
 
 ```bash
-# development
-$ npm run start
+bun install
 
-# watch mode
-$ npm run start:dev
+# development (watch mode)
+bun run start:dev
 
-# production mode
-$ npm run start:prod
+# production
+bun run build
+bun run start:prod
 ```
 
-## Run tests
+The API listens on `http://localhost:3000` by default.
+
+## Testing
+
+The test suite has three layers, all built on Jest + `@nestjs/testing` + Supertest:
+
+| Layer | Location | What it covers |
+| ----- | -------- | --------------- |
+| **Unit tests** | `src/**/*.spec.ts` | Services, guards, and strategies in isolation, with repositories/dependencies mocked (`AuthService`, `UsersService`, `ProductsService`, `OrdersService`, `RolesGuard`, `JwtStrategy`). |
+| **Integration tests** | `test/*.e2e-spec.ts` | Full HTTP requests against a real Nest app wired with an in-memory SQLite database (`test/utils/test-app.ts`), covering auth, orders, and admin endpoints end-to-end. |
+| **Regression tests** | `test/regression/*.e2e-spec.ts` | Pin down specific business rules so future changes can't silently break them: the full order status transition matrix, mass-assignment protection (extra fields like `role`/`userId` in request bodies must be ignored), and stock depletion/overselling behavior. |
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+bun run test            # unit tests (src/**/*.spec.ts)
+bun run test:e2e        # integration + regression tests (test/**/*.e2e-spec.ts)
+bun run test:regression # regression suite only (test/regression/**)
+bun run test:cov        # coverage report
 ```
 
-## Deployment
+> Note: use `bun run test`, not bare `bun test`. Bun's native test runner evaluates the TypeORM entity decorators in a different order than Jest and trips over the circular `User` ↔ `Order` reference; the `test` script runs Jest (via `ts-jest`), which NestJS's testing utilities expect.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Integration and regression tests run against an isolated in-memory SQLite database created per test file (no `database.sqlite` file is touched), with the same product/admin seed data as a real run (3 seeded products, `admin@example.com` / `Admin@12345`).
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Manual testing with Postman
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+A ready-made collection is provided in [`postman/`](postman/):
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+1. Import `NestJS-QA-Collection.postman_collection.json` and `NestJS-QA.postman_environment.json` into Postman.
+2. Select the **NestJS QA - Local** environment and confirm `base_url` points at your running instance (`http://localhost:3000`).
+3. Run the **Auth** folder first:
+   - *Register — happy path* creates a test user and stores credentials in `test_email` / `test_password`.
+   - *Register — duplicate email (negative)* expects a `409 Conflict`.
+   - *Login — happy path* stores the resulting token in `jwt_token`. There's also an admin login flow that stores `admin_jwt_token` using `admin_email` / `admin_password`.
+   - *Login — wrong password / missing fields (negative)* expect `401`/`400`.
+4. Run the **Orders** folder (uses `jwt_token`):
+   - *Create order — happy path* stores the new order id in `order_id`.
+   - *Create order — no JWT / invalid quantity / product not found (negative)* expect `401`/`400`/`404`.
+   - *GET order by id* fetches the created order.
+   - *PATCH order status — valid transition* moves the order from `PENDING` to `CONFIRMED`.
+   - *PATCH order status — invalid transition (negative)* expects `422` on a terminal order (`order_id_terminal`).
+5. Run the **Admin** folder:
+   - *GET all users — as ROLE_ADMIN* (uses `admin_jwt_token`) expects `200` with the user list.
+   - *GET all users — as ROLE_USER* (uses `jwt_token`) expects `403`.
 
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This gives end-to-end coverage of registration, authentication, validation errors, ownership/role-based authorization, stock handling, and order status transitions.

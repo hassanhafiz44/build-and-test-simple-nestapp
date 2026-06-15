@@ -38,7 +38,11 @@ export class UsersService implements OnModuleInit {
     return this.usersRepository.findOne({ where: { id } });
   }
 
-  async create(data: { email: string; password: string; name: string }): Promise<User> {
+  async create(data: {
+    email: string;
+    password: string;
+    name: string;
+  }): Promise<User> {
     const user = this.usersRepository.create({
       ...data,
       role: UserRole.USER,
